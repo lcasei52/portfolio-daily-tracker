@@ -24,7 +24,7 @@ Usage:
     python3 portfolio_daily_update.py --action clone
 """
 
-import json, os, sys, argparse, glob, copy, subprocess, re
+import json, os, sys, argparse, glob, copy, subprocess, re, requests
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -485,52 +485,13 @@ def _infer_missing_cost_prices(holdings_before, changes):
 
 
 def send_feishu_notification(date_str, holdings, config):
-    """Send Feishu message asking user about today's holdings changes."""
-    chat_id = config.get("feishu_chat_id", "")
-    if not chat_id:
-        print("  ⚠️ 未配置 feishu_chat_id，跳过飞书通知")
-        return False
-    
-    # Build a summary of current holdings
-    groups_summary = []
-    for gname, gdata in holdings.get("groups", {}).items():
-        pos_names = [p["name"] for p in gdata.get("positions", [])]
-        cash = gdata.get("cash", 0)
-        fund = gdata.get("fund", 0)
-        groups_summary.append(
-            f"【{gname}】持仓: {', '.join(pos_names)}"
-            f"\n  现金: ¥{cash:,.0f} | 基金: ¥{fund:,.0f}"
-        )
-    
-    message = (
-        f"📊 投资组合每日更新 — {date_str}\n"
-        f"\n"
-        f"今日持仓已基于昨日自动生成，当前状态：\n"
-        f"\n"
-        f"{''.join(chr(10) + s for s in groups_summary)}\n"
-        f"\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"请告诉我今日变化：\n"
-        f"• 回复「未变化」→ 直接生成日报\n"
-        f"• 回复变化内容，例如：\n"
-        f"  - 卖了500股药明康德\n"
-        f"  - 进攻现金变为-48万\n"
-        f"  - 基金变为16万\n"
-        f"  - 买了1000股xxx\n"
-        f"\n"
-        f"回复后我会自动更新持仓、生成快照和日报 📈"
-    )
-    
-    return _send_openclaw_message(chat_id, message)
+    """Send daily notification to all configured channels (Feishu + Telegram)."""
+    return push_notification(date_str, holdings, config)
 
 
 def send_feishu_report(date_str, report_content, config):
-    """Send the daily report to Feishu."""
-    chat_id = config.get("feishu_chat_id", "")
-    if not chat_id:
-        return False
-    
-    return _send_openclaw_message(chat_id, report_content)
+    """Send daily report to all configured channels (Feishu + Telegram)."""
+    return push_report(date_str, report_content, config)
 
 
 def _send_openclaw_message(chat_id, message):
@@ -559,6 +520,130 @@ def _send_openclaw_message(chat_id, message):
 def _escape_shell(text):
     """Escape special characters for shell command."""
     return text.replace('"', '\\"').replace('$', '\\$').replace('`', '\\`')
+
+
+# ==================== Telegram Push ====================
+
+def send_telegram_message(bot_token, chat_id, message):
+    """Send a message via Telegram Bot API. Splits long messages into chunks."""
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    max_len = 4096
+
+    # Split into chunks if needed
+    chunks = []
+    while len(message) > max_len:
+        # Try to split at a newline
+        split_at = message.rfind('\n', 0, max_len)
+        if split_at <= max_len // 2:
+            split_at = max_len
+        chunks.append(message[:split_at])
+        message = message[split_at:].lstrip('\n')
+    chunks.append(message)
+
+    success = True
+    for i, chunk in enumerate(chunks):
+        try:
+            resp = requests.post(url, json={
+                "chat_id": chat_id,
+                "text": chunk,
+                "parse_mode": "Markdown",
+            }, timeout=15)
+            if resp.status_code == 200:
+                print(f"  ✅ Telegram 消息已发送" + (f" ({i+1}/{len(chunks)})" if len(chunks) > 1 else ""))
+            else:
+                err = resp.json().get("description", resp.text[:200])
+                # If Markdown parsing fails, retry as plain text
+                if "can't parse entities" in err.lower():
+                    resp = requests.post(url, json={
+                        "chat_id": chat_id,
+                        "text": chunk,
+                    }, timeout=15)
+                    if resp.status_code == 200:
+                        print(f"  ✅ Telegram 消息已发送(纯文本)" + (f" ({i+1}/{len(chunks)})" if len(chunks) > 1 else ""))
+                        continue
+                print(f"  ⚠️ Telegram 发送失败: {err}")
+                success = False
+        except Exception as e:
+            print(f"  ⚠️ Telegram 发送异常: {e}")
+            success = False
+    return success
+
+
+def push_notification(date_str, holdings, config):
+    """Send daily notification to all configured channels."""
+    sent = False
+
+    # Build notification message
+    groups_summary = []
+    for gname, gdata in holdings.get("groups", {}).items():
+        pos_names = [p["name"] for p in gdata.get("positions", [])]
+        cash = gdata.get("cash", 0)
+        fund = gdata.get("fund", 0)
+        groups_summary.append(
+            f"【{gname}】持仓: {', '.join(pos_names)}"
+            f"\n  现金: ¥{cash:,.0f} | 基金: ¥{fund:,.0f}"
+        )
+
+    message = (
+        f"📊 投资组合每日更新 — {date_str}\n"
+        f"\n"
+        f"今日持仓已基于昨日自动生成，当前状态：\n"
+        f"\n"
+        f"{''.join(chr(10) + s for s in groups_summary)}\n"
+        f"\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"请告诉我今日变化：\n"
+        f"• 回复「未变化」→ 直接生成日报\n"
+        f"• 回复变化内容，例如：\n"
+        f"  - 卖了500股药明康德\n"
+        f"  - 进攻现金变为-48万\n"
+        f"  - 基金变为16万\n"
+        f"  - 买了1000股xxx\n"
+        f"\n"
+        f"回复后我会自动更新持仓、生成快照和日报 📈"
+    )
+
+    # Telegram
+    tg_token = config.get("telegram_bot_token", "")
+    tg_chat = config.get("telegram_chat_id", "")
+    if tg_token and tg_chat:
+        print("  📱 推送 Telegram 通知...")
+        if send_telegram_message(tg_token, tg_chat, message):
+            sent = True
+
+    # Feishu
+    feishu_chat = config.get("feishu_chat_id", "")
+    if feishu_chat:
+        print("  📱 推送飞书通知...")
+        if _send_openclaw_message(feishu_chat, message):
+            sent = True
+
+    if not sent:
+        print("  ⚠️ 未配置任何推送渠道 (Telegram 或 飞书)")
+
+    return sent
+
+
+def push_report(date_str, report_content, config):
+    """Send daily report to all configured channels."""
+    sent = False
+
+    # Telegram
+    tg_token = config.get("telegram_bot_token", "")
+    tg_chat = config.get("telegram_chat_id", "")
+    if tg_token and tg_chat:
+        print("  📱 推送 Telegram 日报...")
+        if send_telegram_message(tg_token, tg_chat, report_content):
+            sent = True
+
+    # Feishu
+    feishu_chat = config.get("feishu_chat_id", "")
+    if feishu_chat:
+        print("  📱 推送飞书日报...")
+        if _send_openclaw_message(feishu_chat, report_content):
+            sent = True
+
+    return sent
 
 
 def run_snapshot(date_str):
@@ -608,23 +693,23 @@ def run_report(date_str):
 
 
 def run_pipeline(date_str, send_report=True):
-    """Full pipeline: snapshot → report → push Feishu → sync QR."""
+    """Full pipeline: snapshot → report → push (Telegram/Feishu) → sync QR."""
     config = load_config()
-    
+
     print(f"\n🚀 运行完整管道 — {date_str}")
-    
+
     # Step 1: Generate snapshot
     print("\n[1/3] 生成快照...")
     if not run_snapshot(date_str):
         return False
-    
-    # Step 2: Generate report  
+
+    # Step 2: Generate report
     print("\n[2/3] 生成报告...")
     report_file = run_report(date_str)
-    
-    # Step 3: Push to Feishu
+
+    # Step 3: Push report (Telegram + Feishu)
     if send_report and report_file:
-        print("\n[3/3] 推送飞书...")
+        print("\n[3/3] 推送日报...")
         report_content = report_file.read_text()
         send_feishu_report(date_str, report_content, config)
     else:
@@ -641,22 +726,22 @@ def run_pipeline(date_str, send_report=True):
 
 
 def action_notify(date_str):
-    """Cron action: clone holdings + send Feishu notification."""
+    """Cron action: clone holdings + send notification (Telegram/Feishu)."""
     config = load_config()
-    
+
     print(f"📋 每日持仓更新通知 — {date_str}")
-    
+
     # Clone holdings
     print("\n[1/2] 克隆持仓...")
     path, is_new = clone_holdings(date_str)
     if not path:
         return False
-    
+
     # Load today's holdings
     holdings = load_holdings(date_str)
-    
-    # Send notification
-    print("\n[2/2] 发送飞书通知...")
+
+    # Send notification to all configured channels
+    print("\n[2/2] 发送通知...")
     send_feishu_notification(date_str, holdings, config)
     
     return True
@@ -715,7 +800,7 @@ def main():
     parser.add_argument("--text", "-t", default="",
                         help="Change description text (for 'update' action)")
     parser.add_argument("--no-push", action="store_true",
-                        help="Skip Feishu push")
+                        help="Skip push notification (Telegram/Feishu)")
     args = parser.parse_args()
     
     date_str = args.date

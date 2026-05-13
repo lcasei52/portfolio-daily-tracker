@@ -10,6 +10,8 @@ services:
       - "8000:8000"
     volumes:
       - ./engine/portfolio:/app/portfolio:ro
+      - ./dashboard/config.json:/app/config.json:ro
+      - ./dashboard/data:/app/data
     environment:
       - PORTFOLIO_DIR=/app/portfolio
     restart: unless-stopped
@@ -25,12 +27,29 @@ services:
       - backend
     restart: unless-stopped
 
-  # Portfolio Engine — run manually or via scheduler
-  # Usage: docker compose run engine python scripts/portfolio_snapshot.py
+  # Portfolio Engine — snapshot, report, daily update
   engine:
     build:
       context: ./engine
       dockerfile: Dockerfile
     volumes:
       - ./engine/portfolio:/app/portfolio
+      - ./engine/reports:/app/reports
+    environment:
+      - PORTFOLIO_DIR=/app/portfolio
     working_dir: /app
+
+  # Portfolio Scheduler — daily notify + auto-pipeline
+  scheduler:
+    build:
+      context: ./engine
+      dockerfile: Dockerfile
+    volumes:
+      - ./engine/portfolio:/app/portfolio
+      - ./engine/reports:/app/reports
+      - ./engine/logs:/app/logs
+    environment:
+      - PORTFOLIO_DIR=/app/portfolio
+    working_dir: /app
+    command: ["python3", "scripts/portfolio_scheduler.py", "--notify-time", "18:00", "--pipeline-time", "19:00"]
+    restart: unless-stopped

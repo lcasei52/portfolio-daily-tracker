@@ -2,6 +2,7 @@
 Agent 服务
 整合 LLM、持仓、记忆等功能
 """
+import os
 import sys
 from pathlib import Path
 from typing import Optional, Dict, Any, List, AsyncIterator
@@ -99,10 +100,18 @@ class AgentService:
         api_group = self.config.get_current_api_group()
         model_id = self.config.llm_config.get("current_model", "kimi-k2.5")
 
+        # 优先从环境变量读取 API Key，fallback 到 config.json
+        api_key = (
+            os.environ.get("LLM_API_KEY")
+            or os.environ.get("ANTHROPIC_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+            or api_group.get("api_key", "")
+        )
+
         llm_config = LLMConfig(
-            api_key=api_group["api_key"],
-            base_url=api_group["base_url"],
-            model=model_id,
+            api_key=api_key,
+            base_url=os.environ.get("LLM_BASE_URL") or api_group.get("base_url"),
+            model=os.environ.get("LLM_MODEL") or model_id,
             temperature=self.config.llm_config.get("temperature", 0.7),
             timeout=self.config.llm_config.get("timeout", 120),
         )

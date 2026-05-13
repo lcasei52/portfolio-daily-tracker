@@ -4,6 +4,10 @@ FastAPI 后端主入口
 import sys
 from pathlib import Path
 
+# 加载 .env 环境变量
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent.parent.parent / ".env")
+
 # 添加项目路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 

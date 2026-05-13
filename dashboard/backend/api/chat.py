@@ -142,6 +142,20 @@ def save_conversation_turn(
 
 @router.post("/message")
 async def chat_message(request: ChatRequest):
+    try:
+        return await _chat_message_impl(request)
+    except Exception as e:
+        import traceback
+        _log = Path(__file__).parent.parent.parent / "data" / "chat_error.log"
+        _log.parent.mkdir(parents=True, exist_ok=True)
+        with open(_log, "a", encoding="utf-8") as f:
+            f.write(f"--- {datetime.now()} ---\n")
+            traceback.print_exc(file=f)
+            f.write("\n")
+        raise _chat_error_to_http(e) from e
+
+
+async def _chat_message_impl(request: ChatRequest):
     """
     发送消息并获取回复
 
@@ -160,10 +174,18 @@ async def chat_message(request: ChatRequest):
         elif request.stream:
             async def generate():
                 full_response = ""
-                async for chunk in service.chat(request.message, stream=True):
-                    full_response += chunk
-                    escaped = json.dumps(chunk, ensure_ascii=False)
-                    yield f"data: {escaped}\n\n"
+                try:
+                    async for chunk in service.chat(request.message, stream=True):
+                        full_response += chunk
+                        escaped = json.dumps(chunk, ensure_ascii=False)
+                        yield f"data: {escaped}\n\n"
+                except Exception as e:
+                    import traceback
+                    _log = Path(__file__).parent.parent.parent / "data" / "chat_error.log"
+                    _log.parent.mkdir(parents=True, exist_ok=True)
+                    with open(_log, "a", encoding="utf-8") as f:
+                        traceback.print_exc(file=f)
+                    yield f"data: {json.dumps(str(e), ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
                 save_conversation_turn(
                     request.message, full_response,
@@ -186,10 +208,8 @@ async def chat_message(request: ChatRequest):
                 full_response += chunk
             save_conversation_turn(request.message, full_response)
             return {"response": full_response}
-    except HTTPException:
+    except Exception:
         raise
-    except Exception as e:
-        raise _chat_error_to_http(e) from e
 
 
 @router.post("/message-with-image")
