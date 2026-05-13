@@ -8,6 +8,8 @@ services:
       - "8000:8000"
     volumes:
       - ./engine/portfolio:/app/portfolio:ro
+      - ./engine/portfolio:/engine/portfolio
+      - ./engine/scripts:/engine/scripts:ro
       - ./dashboard/config.json:/app/config.json:ro
       - ./dashboard/data:/app/data
     environment:
