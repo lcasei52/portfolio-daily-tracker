@@ -522,7 +522,20 @@ def update_holdings_tool() -> Tool:
 
     return Tool(
         name="update_holdings",
-        description="更新投资组合每日持仓。接受自然语言描述的持仓变化（如'卖了500股药明康德''现金变为5000''基金变为16万''持仓未变化'）。更新完成后应调用 run_portfolio_pipeline 生成快照和日报。",
+        description=(
+            "更新投资组合每日持仓。你必须将用户的自然语言描述翻译成以下结构化格式：\n"
+            "- 新增持仓: \"新增 {股票名称} ticker:{交易所}:{代码} 数量:{股数} 成本:{每股成本价}\"\n"
+            "  交易所: 沪市用SHA(6开头), 深市用SHE(0/3开头), 港股用HKEX, 美股用NASDAQ/NYSE\n"
+            "  例: \"新增 上证指数ETF ticker:SHA:510210 数量:41700 成本:0.9684\"\n"
+            "- 卖出: \"卖了{数量}股{股票名称}\" 例: \"卖了500股药明康德\"\n"
+            "- 买入已有持仓: \"买了{数量}股{股票名称}\" 例: \"买了1000股药明康德\"\n"
+            "- 清仓: \"清仓{股票名称}\" 例: \"清仓药明康德\"\n"
+            "- 现金: \"现金变为{金额}\" 或 \"进攻现金{金额}\" 例: \"现金变为5000\"\n"
+            "- 基金: \"基金变为{金额}\" 例: \"基金变为16万\"\n"
+            "- 持仓不变: \"未变化\"\n"
+            "- 成本调整: \"成本调整为{金额}\" 例: \"成本调整为58.5万\"\n"
+            "多条变更用分号分隔。更新完成后应调用 run_portfolio_pipeline 生成快照和日报。"
+        ),
         parameters=[
             ToolParameter(
                 name="date",
@@ -532,7 +545,7 @@ def update_holdings_tool() -> Tool:
             ToolParameter(
                 name="changes_text",
                 type=ToolParameterType.STRING,
-                description="持仓变化的自然语言描述。支持: '未变化''卖了500股xxx''现金变为xxx''基金变为xxx''买了1000股xxx' 等，多条变更用逗号分隔",
+                description="按上述格式化规则转换后的结构化持仓变更描述",
             ),
         ],
         function=update_holdings,
@@ -565,7 +578,6 @@ def run_portfolio_pipeline_tool() -> Tool:
 
         if success:
             # Read the generated snapshot for summary
-            from pathlib import Path
             snap_file = Path(os.environ.get("PORTFOLIO_DIR", str(Path(__file__).parent.parent.parent / "engine" / "portfolio"))) / "snapshots" / f"{date}.json"
             summary = {}
             if snap_file.exists():
