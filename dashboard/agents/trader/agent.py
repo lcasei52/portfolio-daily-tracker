@@ -135,13 +135,10 @@ class TraderAgent:
                     # 添加工具结果到消息
                     messages.extend(tool_results)
 
-                    # 继续非流式模式获取最终回复
-                    response = await self.llm.chat(messages, tools=tools)
-                    final_text = response.content
-                    yield f"\n\n{final_text}"
-
-                    final_response = response_text + "\n\n" + final_text
-                    break
+                    # 后续迭代走非流式路径（支持多步工具调用）
+                    stream = False
+                    final_response = response_text
+                    continue
                 else:
                     final_response = response_text
                     break
