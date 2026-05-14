@@ -465,6 +465,42 @@ def get_tracker_snapshot_tool() -> Tool:
     )
 
 
+def _sync_holdings_to_portfolio(holdings: dict):
+    """Sync holdings data to data/portfolio.json so the frontend Portfolio tab displays it."""
+    import json
+
+    market_map = {"SHA": "a_share", "SHE": "a_share", "HKEX": "hk_stock",
+                  "NASDAQ": "us_stock", "NYSE": "us_stock"}
+    positions = []
+    total_cash = 0
+
+    for group_name, group_data in holdings.get("groups", {}).items():
+        total_cash += group_data.get("cash", 0)
+        for pos in group_data.get("positions", []):
+            ticker = pos.get("ticker", "")
+            parts = ticker.split(":")
+            exchange = parts[0] if len(parts) > 1 else ""
+            symbol = parts[1] if len(parts) > 1 else ticker
+
+            positions.append({
+                "symbol": symbol,
+                "name": pos.get("name", ""),
+                "market": market_map.get(exchange, "a_share"),
+                "quantity": pos.get("quantity", 0),
+                "available_qty": pos.get("quantity", 0),
+                "cost_price": pos.get("cost_price", 0),
+                "current_price": pos.get("cost_price", 0),
+                "side": "long",
+            })
+
+    portfolio_data = {"positions": positions, "cash": total_cash}
+
+    portfolio_file = Path(__file__).parent.parent / "data" / "portfolio.json"
+    portfolio_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(portfolio_file, "w", encoding="utf-8") as f:
+        json.dump(portfolio_data, f, ensure_ascii=False, indent=2)
+
+
 def update_holdings_tool() -> Tool:
     """更新每日持仓工具 — 支持自然语言描述持仓变化"""
     async def update_holdings(date: str, changes_text: str) -> Dict:
@@ -504,6 +540,7 @@ def update_holdings_tool() -> Tool:
 
         if has_real_changes:
             save_holdings(holdings, date)
+            _sync_holdings_to_portfolio(holdings)
 
         return {
             "success": True,

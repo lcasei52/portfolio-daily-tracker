@@ -650,9 +650,16 @@ def run_snapshot(date_str):
     """Run the snapshot engine."""
     script = BASE_DIR / "portfolio_snapshot.py"
     conda = os.environ.get("CONDA_EXE", "conda")
-    
+
+    # Use conda if available, otherwise fall back to plain python3
+    import shutil
+    if shutil.which(conda):
+        cmd = [conda, "run", "-n", "quant", "python3", str(script), "--date", date_str]
+    else:
+        cmd = [sys.executable, str(script), "--date", date_str]
+
     result = subprocess.run(
-        [conda, "run", "-n", "quant", "python3", str(script), "--date", date_str],
+        cmd,
         capture_output=True, text=True, timeout=120,
         cwd=str(BASE_DIR)
     )
@@ -674,12 +681,18 @@ def run_report(date_str):
     """Generate markdown report."""
     script = BASE_DIR / "portfolio_report.py"
     conda = os.environ.get("CONDA_EXE", "conda")
-    
+
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     report_file = REPORTS_DIR / f"portfolio-{date_str.replace('-', '')}.md"
-    
+
+    import shutil
+    if shutil.which(conda):
+        cmd = [conda, "run", "-n", "quant", "python3", str(script), "--date", date_str, "-o", str(report_file)]
+    else:
+        cmd = [sys.executable, str(script), "--date", date_str, "-o", str(report_file)]
+
     result = subprocess.run(
-        [conda, "run", "-n", "quant", "python3", str(script), "--date", date_str, "-o", str(report_file)],
+        cmd,
         capture_output=True, text=True, timeout=30,
         cwd=str(BASE_DIR)
     )

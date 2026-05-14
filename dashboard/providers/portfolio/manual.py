@@ -108,7 +108,9 @@ class ManualPortfolioProvider(PortfolioProvider):
         return self._portfolio.positions
 
     async def refresh(self) -> None:
-        """刷新持仓数据（更新当前价格）"""
+        """刷新持仓数据（从文件重新加载，然后更新当前价格）"""
+        self._load()
+
         if not self.market_provider or not self._portfolio.positions:
             return
 
